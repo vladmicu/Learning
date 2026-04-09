@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, io::{Read, Write}, net::{TcpListener, TcpStream}};
+use std::{collections::HashMap, io::{BufRead, BufReader, Write}, net::{TcpListener, TcpStream}};
 
 fn main() -> std::io::Result<()>{
     let listener = TcpListener::bind("127.0.0.1:8080")?;
@@ -10,30 +10,27 @@ fn main() -> std::io::Result<()>{
 }
 
 fn handle_request(stream: &mut TcpStream){
-    let mut raw_request_bytes : Vec<u8> = vec![];
-    let mut buff: [u8; 1000] = [0;1000];
-    let mut read_result = stream.read(&mut buff);
-    while let Ok(n) = read_result{
-        raw_request_bytes.extend_from_slice(&buff[0..n]);
-        if n < buff.len() {
-            break;
-        }
-        //buff = [0; 1000]; //doesn't seem necessary, tested with smaller buffer size that requires multiple iterations to read entire request 
-        read_result = stream.read(&mut buff);
-    }
-    let Ok(_) = read_result else{
-        return error_response(stream, HttpError::InternalServerError);
-    };
-    let Ok(raw_request) = str::from_utf8(&raw_request_bytes) else{
-        return error_response(stream, HttpError::BadRequest);
+    let raw_request = match read_request(stream){
+        Err(err) => return error_response(stream, err),
+        Ok(s) => s
     };
     //println!("Request:");
     //println!("{raw_request}");
-    let req = Request::parse(raw_request);
+    let req = Request::parse(raw_request.as_str());
     match req{
         Err(err) => error_response(stream, err),
         Ok(r) => normal_response(stream, r)
     }
+}
+
+fn read_request(stream: &mut TcpStream) -> Result<String, HttpError>{
+    let mut reader = BufReader::new(stream);
+    let buffer = reader.fill_buf().map_err(|_| HttpError::InternalServerError)?;
+    let length = buffer.len();
+    let buffer_str = str::from_utf8(buffer).map_err(|_| HttpError::BadRequest)?;
+    let raw_request = buffer_str.to_owned();
+    reader.consume(length);
+    Ok(raw_request)
 }
 
 fn error_response(stream: &mut TcpStream, err: HttpError){
