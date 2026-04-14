@@ -42,22 +42,32 @@ fn normal_response(stream: &mut TcpStream, req : Request){
     if req.resource != "/" {
         return error_response(stream, HttpError::NotFound);
     }
-    if req.method != HttpMethod::GET {
-        return error_response(stream, HttpError::MethodNotAllowed);
-    }
+    let response = match get_response_index(req){
+        Err(err) => return error_response(stream, err),
+        Ok(r) => r
+    };
+    let _ = stream.write_all(&response);
+    let _ = stream.flush();
+}
 
+fn get_response_index(req : Request) -> Result<Vec<u8>,HttpError>{
+    if req.method != HttpMethod::GET {
+        return Err(HttpError::MethodNotAllowed);
+    }
     let name =  req.headers.get("name")
                             .or(req.params.get("name"))
                             .unwrap_or(&"World");
     let str_content = format!("<html><body>Hello {name}!</body></html>\n");
     let content = str_content.as_bytes();
     let content_length = content.len();
-    let _ = stream.write("HTTP/1.1 200 OK\n".as_bytes());
-    let _ = stream.write("content-type: text/html\n".as_bytes());
-    let _ = stream.write(format!("content-length: {content_length}\n").as_bytes());
-    let _ = stream.write("\n".as_bytes());
-    let _ = stream.write(content);
-    let _ = stream.flush();
+
+    let mut response : Vec<u8> = Vec::new();
+    response.extend_from_slice("HTTP/1.1 200 OK\n".as_bytes());
+    response.extend_from_slice("content-type: text/html\n".as_bytes());
+    response.extend_from_slice(format!("content-length: {content_length}\n").as_bytes());
+    response.extend_from_slice("\n".as_bytes());
+    response.extend_from_slice(content);
+    Ok(response)
 }
 
 #[derive(PartialEq)]
