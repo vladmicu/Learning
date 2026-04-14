@@ -1,15 +1,19 @@
 use core::fmt;
 use std::{collections::HashMap, io::{BufRead, BufReader, Write}, net::{TcpListener, TcpStream}};
 
+type ResponseFunction = fn(Request) -> Result<Vec<u8>, HttpError>; 
+
 fn main() -> std::io::Result<()>{
     let listener = TcpListener::bind("127.0.0.1:8080")?;
+    let mut response_map : HashMap<&str, ResponseFunction> = HashMap::new();
+    response_map.insert("/", get_response_index); 
     for stream in listener.incoming(){
-        handle_request(&mut stream?);
+        handle_request(&mut stream?, &response_map);
     }
     Ok(())
 }
 
-fn handle_request(stream: &mut TcpStream){
+fn handle_request(stream: &mut TcpStream, response_map: &HashMap<&str, ResponseFunction>){
     let raw_request = match read_request(stream){
         Err(err) => return error_response(stream, err),
         Ok(s) => s
@@ -19,7 +23,7 @@ fn handle_request(stream: &mut TcpStream){
     let req = Request::parse(raw_request.as_str());
     match req{
         Err(err) => error_response(stream, err),
-        Ok(r) => normal_response(stream, r)
+        Ok(r) => normal_response(stream, r, &response_map)
     }
 }
 
@@ -38,11 +42,13 @@ fn error_response(stream: &mut TcpStream, err: HttpError){
     let _ = stream.flush();
 }
 
-fn normal_response(stream: &mut TcpStream, req : Request){
-    if req.resource != "/" {
-        return error_response(stream, HttpError::NotFound);
-    }
-    let response = match get_response_index(req){
+fn normal_response(stream: &mut TcpStream, req : Request, response_map: &HashMap<&str, ResponseFunction>){
+    let response_function = match response_map.get(req.resource){
+        None => return error_response(stream, HttpError::NotFound),
+        Some(f) => f
+    };
+
+    let response = match response_function(req){
         Err(err) => return error_response(stream, err),
         Ok(r) => r
     };
